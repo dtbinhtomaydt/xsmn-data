@@ -1,4 +1,4 @@
-name: Cap nhat du lieu XSMN
+name: Cap nhat du lieu XSMN, Mega 6/45, Power 6/55
 
 # Chay tu dong moi ngay luc 13:00 UTC (= 20:00 gio Viet Nam), va cho phep
 # bam "Run workflow" thu cong bat cu luc nao de test.
@@ -24,17 +24,20 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Chay scraper
+      - name: Chay scraper XSMN
         run: node scrape-xsmn.js
+
+      - name: Chay scraper Mega 6/45 + Power 6/55
+        run: node scrape-pick.js
 
       - name: Commit & push neu co thay doi
         run: |
           git config user.name "xsmn-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/xsmn.json
+          git add data/xsmn.json data/pick.json
           if git diff --cached --quiet; then
             echo "Khong co du lieu moi hom nay."
           else
-            git commit -m "Cap nhat du lieu XSMN $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git commit -m "Cap nhat du lieu $(date -u +'%Y-%m-%d %H:%M UTC')"
             git push
           fi
