@@ -36,6 +36,8 @@ const TIER_LABELS = [
   ["bay", /gi[aả]i\s*b[aả]y(?![a-záàảã])/i],
   ["g8", /gi[aả]i\s*(8|t[aá]m)(?![a-záàảã])/i],
 ];
+const TIER_WIDTH_MAP = {};
+MT_STRUCTURE.forEach(function (t) { TIER_WIDTH_MAP[t[0]] = t[1] * t[2]; });
 
 function pad2(n) { return String(n).padStart(2, "0"); }
 
@@ -85,25 +87,43 @@ function sliceTiers(blobByTier, structure) {
   return { lo, full, errs };
 }
 
+// QUAN TRONG: stripTags() gop TOAN BO khoang trang (ke ca xuong dong \n) thanh 1 dau cach —
+// nen KHONG THE tach theo dong (\n) nhu truoc day (tung lam ca trang bi coi la "1 dong" duy nhat,
+// khien nhan giai dau tien "nuot" het chu so cua ca cac hang giai/ky quay phia sau).
+// Thay vao do: tim VI TRI xuat hien cua tung nhan giai trong toan bo doan text, roi lay chu so
+// nam GIUA nhan hien tai va nhan KE TIEP (theo vi tri, khong theo dong) — sau do CAT DUNG do dai
+// ky vong cua hang giai do (vd Giai 8 = 2 chu so) de bo qua phan du thua "ron" sang doan sau.
 function parseLoBlockFromText(text, structure) {
-  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-  const blocks = [];
-  let cur = null;
-  lines.forEach(function (line) {
-    const dbTest = TIER_LABELS[0][1];
-    if (dbTest.test(line)) { if (cur) blocks.push(cur); cur = {}; }
-    if (!cur) return;
-    for (const [key, re] of TIER_LABELS) {
-      const m = re.exec(line);
-      if (m) {
-        const rest = line.slice(m.index + m[0].length);
-        const digits = (rest.match(/\d+/g) || []).join("");
-        cur[key] = digits;
-        break;
-      }
+  const labelHits = [];
+  TIER_LABELS.forEach(function (pair) {
+    const key = pair[0], re = pair[1];
+    const flags = re.flags.indexOf("g") >= 0 ? re.flags : re.flags + "g";
+    const globalRe = new RegExp(re.source, flags);
+    let m;
+    while ((m = globalRe.exec(text))) {
+      labelHits.push({ key: key, start: m.index, end: m.index + m[0].length });
     }
   });
+  if (labelHits.length === 0) return [];
+  labelHits.sort(function (a, b) { return a.start - b.start; });
+
+  const widthMap = {};
+  structure.forEach(function (t) { widthMap[t[0]] = t[1] * t[2]; });
+
+  const blocks = [];
+  let cur = null;
+  labelHits.forEach(function (hit, i) {
+    if (hit.key === "db") { if (cur) blocks.push(cur); cur = {}; }
+    if (!cur) return;
+    const nextStart = i + 1 < labelHits.length ? labelHits[i + 1].start : text.length;
+    const windowText = text.slice(hit.end, nextStart);
+    let digits = (windowText.match(/\d+/g) || []).join("");
+    const expectedLen = widthMap[hit.key];
+    if (expectedLen && digits.length > expectedLen) digits = digits.slice(0, expectedLen);
+    if (!(hit.key in cur)) cur[hit.key] = digits;
+  });
   if (cur) blocks.push(cur);
+
   const results = [];
   blocks.forEach(function (b) {
     const r = sliceTiers(b, structure);
