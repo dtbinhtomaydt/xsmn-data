@@ -169,12 +169,21 @@ async function main() {
 
   const result = Object.assign({}, existing);
   const summary = [];
+  let debugPrinted = 0; // chi in debug cho 2 tinh dau tien bi 0 ky, tranh log qua dai
 
   for (const slug of PROVINCES_MN) {
     try {
       const html = await fetchProvincePage(slug);
       const text = stripTags(html);
       const draws = parseLoDrawsFromText(text, MT_STRUCTURE);
+      if (draws.length === 0 && debugPrinted < 2) {
+        debugPrinted++;
+        console.log("--- DEBUG " + slug + ": html.length=" + html.length + " ---");
+        console.log("HTML dau (500 ky tu): " + html.slice(0, 500).replace(/\s+/g, " "));
+        console.log("Text sau stripTags (dau 500 ky tu): " + text.slice(0, 500));
+        console.log("Co chua 'Giai' khong: " + /gi[aả]i/i.test(text));
+        console.log("Co chua ngay dang DD/MM/YYYY khong: " + /\d{1,2}\/\d{1,2}\/\d{4}/.test(text));
+      }
       const existingArr = Array.isArray(result[slug]) ? result[slug] : [];
       const existingDates = new Set(existingArr.map((r) => r[0]));
       let added = 0;
