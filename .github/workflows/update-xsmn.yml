@@ -12,6 +12,13 @@ on:
 permissions:
   contents: write
 
+# Neu 2 lan chay bi trung nhau (vd bam "Run workflow" nhieu lan gan nhau, hoac trung
+# gio voi lich tu dong) — XEP HANG lan lai thay vi chay song song, tranh loi "push bi
+# tu choi vi remote co thay doi chua co o local" (git push rejected).
+concurrency:
+  group: cap-nhat-du-lieu
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -39,5 +46,11 @@ jobs:
             echo "Khong co du lieu moi hom nay."
           else
             git commit -m "Cap nhat du lieu $(date -u +'%Y-%m-%d %H:%M UTC')"
-            git push
+            # Dong bo voi remote truoc khi push (phong truong hop co lan chay khac vua push
+            # truoc do) — thu toi da 5 lan, moi lan cach nhau vai giay.
+            for i in 1 2 3 4 5; do
+              git pull --rebase origin main && git push && break
+              echo "Push lan $i that bai, thu lai..."
+              sleep 5
+            done
           fi
