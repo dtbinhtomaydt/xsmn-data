@@ -154,6 +154,9 @@ async function fetchProvincePage(slug) {
   const resp = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Referer": "https://www.minhngoc.net/",
     },
   });
   if (!resp.ok) throw new Error("HTTP " + resp.status);
@@ -179,10 +182,18 @@ async function main() {
       if (draws.length === 0 && debugPrinted < 2) {
         debugPrinted++;
         console.log("--- DEBUG " + slug + ": html.length=" + html.length + " ---");
-        console.log("HTML dau (500 ky tu): " + html.slice(0, 500).replace(/\s+/g, " "));
-        console.log("Text sau stripTags (dau 500 ky tu): " + text.slice(0, 500));
-        console.log("Co chua 'Giai' khong: " + /gi[aả]i/i.test(text));
+        console.log("Co chua 'Giai DB'/'Giai Dac Biet' khong: " + /gi[aả]i\s*đ[ạa]c\s*bi[eệ]t|gi[aả]i\s*đb/i.test(text));
         console.log("Co chua ngay dang DD/MM/YYYY khong: " + /\d{1,2}\/\d{1,2}\/\d{4}/.test(text));
+        console.log("Co chua chuoi '2026' khong: " + text.includes("2026"));
+        const idx2026 = text.indexOf("2026");
+        if (idx2026 >= 0) {
+          console.log("Ngu canh quanh '2026' dau tien (100 ky tu truoc/sau): " + text.slice(Math.max(0, idx2026 - 100), idx2026 + 100));
+        }
+        const idxKq = text.toLowerCase().indexOf("ket qua");
+        if (idxKq >= 0) {
+          console.log("Ngu canh quanh 'ket qua' dau tien: " + text.slice(idxKq, idxKq + 400));
+        }
+        console.log("Text cuoi (200 ky tu cuoi): " + text.slice(-200));
       }
       const existingArr = Array.isArray(result[slug]) ? result[slug] : [];
       const existingDates = new Set(existingArr.map((r) => r[0]));
