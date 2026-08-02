@@ -218,6 +218,27 @@ async function main() {
         if (idxKq >= 0) {
           console.log("Ngu canh quanh 'ket qua' dau tien: " + text.slice(idxKq, idxKq + 400));
         }
+        // Debug sau: chay lai chinh xac tung buoc cua parseLoDrawsFromText de xem doan (segment)
+        // nao duoc xet va co bao nhieu nhan giai duoc tim thay trong DUNG doan do.
+        const dbgDates = extractDatesWithPositions(text);
+        console.log("So luong 'ngay' tim thay tren toan trang: " + dbgDates.length);
+        console.log("5 ngay dau tien: " + JSON.stringify(dbgDates.slice(0, 5).map(function(d){return d.date+"@"+d.index;})));
+        for (let di = 0; di < Math.min(3, dbgDates.length); di++) {
+          const segStart = dbgDates[di].end;
+          const segEnd = di + 1 < dbgDates.length ? dbgDates[di + 1].index : text.length;
+          const segment = text.slice(segStart, segEnd);
+          console.log("--- Segment #" + di + " (ngay=" + dbgDates[di].date + ", do dai=" + segment.length + ") ---");
+          console.log("Noi dung segment (toi da 300 ky tu): " + segment.slice(0, 300));
+          const dbgHits = [];
+          TIER_LABELS.forEach(function (pair) {
+            const key = pair[0], re = pair[1];
+            const flags = re.flags.indexOf("g") >= 0 ? re.flags : re.flags + "g";
+            const globalRe = new RegExp(re.source, flags);
+            let mm;
+            while ((mm = globalRe.exec(segment))) dbgHits.push(key + "@" + mm.index);
+          });
+          console.log("Nhan giai tim thay trong segment nay: " + JSON.stringify(dbgHits));
+        }
         console.log("Text cuoi (200 ky tu cuoi): " + text.slice(-200));
       }
       const existingArr = Array.isArray(result[slug]) ? result[slug] : [];
