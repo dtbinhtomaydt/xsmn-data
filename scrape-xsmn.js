@@ -47,7 +47,12 @@ function stripTags(html) {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    // QUAN TRONG: trang nguon co the tra ve chu tieng Viet o dang to hop dau rieng (Unicode NFD,
+    // vd "a" + dau hoi rieng) thay vi dang dung san (NFC, vd "ả" la 1 ky tu). Cac regex nhan dien
+    // nhan giai (TIER_LABELS) duoc viet theo dang NFC nen se KHONG khop duoc voi van ban NFD —
+    // chuan hoa ve NFC truoc de dam bao khop dung trong moi truong hop.
+    .normalize("NFC");
 }
 
 function extractDatesWithPositions(text) {
