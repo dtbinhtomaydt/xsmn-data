@@ -41,12 +41,39 @@ MT_STRUCTURE.forEach(function (t) { TIER_WIDTH_MAP[t[0]] = t[1] * t[2]; });
 
 function pad2(n) { return String(n).padStart(2, "0"); }
 
+// Trang nguon ma hoa 1 so chu co dau (nhung chu TRUNG voi bang HTML4 chuan, vd à á ì) thanh
+// HTML entity (vd "nh&igrave;" thay vi "nhì") thay vi ky tu UTF-8 truc tiep — can giai ma truoc
+// khi so khop nhan giai, neu khong "nhì"/"sáu" se khong duoc nhan dien.
+const NAMED_ENTITIES = {
+  amp:"&", lt:"<", gt:">", quot:'"', apos:"'", nbsp:" ", copy:"©", reg:"®", trade:"™",
+  hellip:"…", mdash:"—", ndash:"–", lsquo:"‘", rsquo:"’", ldquo:"“", rdquo:"”",
+  deg:"°", middot:"·", laquo:"«", raquo:"»", sect:"§", para:"¶", bull:"•",
+  agrave:"à", aacute:"á", acirc:"â", atilde:"ã", auml:"ä", aring:"å", aelig:"æ",
+  ccedil:"ç", egrave:"è", eacute:"é", ecirc:"ê", euml:"ë",
+  igrave:"ì", iacute:"í", icirc:"î", iuml:"ï", ntilde:"ñ",
+  ograve:"ò", oacute:"ó", ocirc:"ô", otilde:"õ", ouml:"ö", oslash:"ø",
+  ugrave:"ù", uacute:"ú", ucirc:"û", uuml:"ü", yacute:"ý", yuml:"ÿ",
+  Agrave:"À", Aacute:"Á", Acirc:"Â", Atilde:"Ã", Auml:"Ä", Aring:"Å", AElig:"Æ",
+  Ccedil:"Ç", Egrave:"È", Eacute:"É", Ecirc:"Ê", Euml:"Ë",
+  Igrave:"Ì", Iacute:"Í", Icirc:"Î", Iuml:"Ï", Ntilde:"Ñ",
+  Ograve:"Ò", Oacute:"Ó", Ocirc:"Ô", Otilde:"Õ", Ouml:"Ö", Oslash:"Ø",
+  Ugrave:"Ù", Uacute:"Ú", Ucirc:"Û", Uuml:"Ü", Yacute:"Ý",
+  eth:"ð", ETH:"Ð", thorn:"þ", THORN:"Þ", szlig:"ß",
+};
+function decodeEntities(text) {
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, function (_, h) { return String.fromCodePoint(parseInt(h, 16)); })
+    .replace(/&#(\d+);/g, function (_, d) { return String.fromCodePoint(parseInt(d, 10)); })
+    .replace(/&([a-zA-Z]+);/g, function (m, name) { return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : m; });
+}
+
 function stripTags(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+  )
     .replace(/\s+/g, " ")
     // QUAN TRONG: trang nguon co the tra ve chu tieng Viet o dang to hop dau rieng (Unicode NFD,
     // vd "a" + dau hoi rieng) thay vi dang dung san (NFC, vd "ả" la 1 ky tu). Cac regex nhan dien
