@@ -18,6 +18,15 @@ const PROVINCES_MN = [
   "binh-duong","tra-vinh","long-an","binh-phuoc","hau-giang","tien-giang",
   "kien-giang","da-lat",
 ];
+// Thu (0=CN...6=T7) ma tung tinh mo thuong trong tuan — dung de tinh DANH SACH KY QUAY DU KIEN
+// (tu 01/01 nam hien tai den hom nay) roi doi chieu voi du lieu da co, tim ra ky nao con THIEU.
+// Phai KHOP CHINH XAC voi mang PROVINCES_MN (weekdays) trong app (vietlott_thongke.html).
+const PROVINCE_WEEKDAYS = {
+  "tp-hcm":[1,6], "dong-thap":[1], "ca-mau":[1], "ben-tre":[2], "vung-tau":[2], "bac-lieu":[2],
+  "dong-nai":[3], "can-tho":[3], "soc-trang":[3], "tay-ninh":[4], "an-giang":[4], "binh-thuan":[4],
+  "vinh-long":[5], "binh-duong":[5], "tra-vinh":[5], "long-an":[6], "binh-phuoc":[6], "hau-giang":[6],
+  "tien-giang":[0], "kien-giang":[0], "da-lat":[0],
+};
 
 // Cau truc hang giai: [ten_hang, so_luong_chuoi, do_rong_moi_chuoi] — GIONG HET app.
 const MT_STRUCTURE = [
@@ -40,6 +49,32 @@ const TIER_WIDTH_MAP = {};
 MT_STRUCTURE.forEach(function (t) { TIER_WIDTH_MAP[t[0]] = t[1] * t[2]; });
 
 function pad2(n) { return String(n).padStart(2, "0"); }
+
+// ---- Cac ham xu ly ngay thang (dung UTC de tranh lech mui gio khi chay tren GitHub Actions) ----
+function isoOf(d){ return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate()); }
+function isoToDDMMYYYY(iso){ const [y,m,d] = iso.split("-"); return d+"-"+m+"-"+y; }
+function addDaysIso(iso, days){
+  const [y,m,d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  dt.setUTCDate(dt.getUTCDate()+days);
+  return isoOf(dt);
+}
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+// Danh sach TAT CA cac ngay du kien co ky quay (theo thu trong tuan cua tinh) tu startIso den endIso
+// (bao gom ca 2 dau). Dung de doi chieu voi du lieu da co va tim ra "ky bi thieu".
+function computeExpectedDates(weekdays, startIso, endIso){
+  const dates = [];
+  let cur = startIso;
+  let guard = 0;
+  while(cur <= endIso && guard < 5000){
+    const [y,m,d] = cur.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, m-1, d)).getUTCDay();
+    if(weekdays.indexOf(dow) >= 0) dates.push(cur);
+    cur = addDaysIso(cur, 1);
+    guard++;
+  }
+  return dates;
+}
 
 // Trang nguon ma hoa 1 so chu co dau (nhung chu TRUNG voi bang HTML4 chuan, vd à á ì) thanh
 // HTML entity (vd "nh&igrave;" thay vi "nhì") thay vi ky tu UTF-8 truc tiep — can giai ma truoc
@@ -215,6 +250,77 @@ async function fetchProvincePage(slug) {
   return await resp.text();
 }
 
+// Trang minhngoc ho tro xem ket qua tinh theo 1 NGAY BAT KY qua URL dang
+// .../mien-nam/<slug>/<dd-mm-yyyy>.html — trang tra ve 1 "cua so" khoang 6-7 ky quay GAN NHAT
+// TINH DEN ngay do (ke ca ngay khong phai ky quay cung tu dong lay ky gan nhat truoc do). Day
+// chinh la co che cho phep "lui ve qua khu" de bo sung du lieu cac ky cu con thieu.
+async function fetchProvincePageForDate(slug, ddmmyyyy) {
+  const url = "https://www.minhngoc.net/ket-qua-xo-so/mien-nam/" + slug + "/" + ddmmyyyy + ".html";
+  const resp = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Referer": "https://www.minhngoc.net/",
+    },
+  });
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  return await resp.text();
+}
+
+// ============================================================================
+// BO SUNG KY THIEU (backfill): tinh danh sach ky quay DU KIEN cua 1 tinh tu 01/01 nam hien tai
+// den hom nay (theo thu trong tuan cua tinh), doi chieu voi du lieu DA CO trong existingArr —
+// neu thieu ky nao, lui dan ve qua khu qua cac trang date-anchored o tren de bo sung, cho den khi
+// het thieu, cham moc 01/01, khong con tien trien (trang tra ve trung lap/rong), hoac cham tran
+// an toan MAX_BACKFILL_REQUESTS (tranh vong lap vo han / spam qua nhieu request 1 tinh).
+// ============================================================================
+const MAX_BACKFILL_REQUESTS = 15; // moi request ~6-7 ky => toi da ~90-100 ky lui ve qua khu, du cho ca nam
+async function backfillProvinceGaps(slug, existingArr) {
+  const weekdays = PROVINCE_WEEKDAYS[slug];
+  if (!weekdays) return { added: 0, requests: 0 };
+  const todayIso = isoOf(new Date());
+  const yearStartIso = todayIso.slice(0, 4) + "-01-01";
+  const expected = computeExpectedDates(weekdays, yearStartIso, todayIso);
+  const existingDates = new Set(existingArr.map((r) => r[0]));
+  let missing = expected.filter((d) => !existingDates.has(d));
+  if (missing.length === 0) return { added: 0, requests: 0 };
+
+  let addedTotal = 0;
+  let requests = 0;
+  let anchor = missing[missing.length - 1]; // ngay THIEU GAN HIEN TAI NHAT — bat dau lui tu day
+  let lastOldest = null;
+  while (missing.length > 0 && requests < MAX_BACKFILL_REQUESTS) {
+    let html;
+    try {
+      html = await fetchProvincePageForDate(slug, isoToDDMMYYYY(anchor));
+    } catch (e) {
+      break; // loi mang/HTTP — dung lai, lan chay sau se thu tiep (van con trong "missing")
+    }
+    requests++;
+    await sleep(800);
+    const text = stripTags(html);
+    const draws = parseLoDrawsFromText(text, MT_STRUCTURE);
+    if (draws.length === 0) break; // trang khong parse duoc gi them — dung, tranh lap vo ich
+
+    let oldestThisRound = null;
+    draws.forEach(function (d) {
+      if (!oldestThisRound || d.date < oldestThisRound) oldestThisRound = d.date;
+      if (!existingDates.has(d.date)) {
+        existingArr.push([d.date, d.numbers, d.full]);
+        existingDates.add(d.date);
+        addedTotal++;
+      }
+    });
+    missing = expected.filter((d) => !existingDates.has(d));
+    if (!oldestThisRound || oldestThisRound === lastOldest) break; // khong tien trien them — dung
+    lastOldest = oldestThisRound;
+    if (oldestThisRound <= yearStartIso) break; // da lui ve toi/qua dau nam — du roi
+    anchor = addDaysIso(oldestThisRound, -1); // lui tiep ve truoc ky cu nhat vua thay
+  }
+  return { added: addedTotal, requests: requests };
+}
+
 async function main() {
   const outPath = path.join(__dirname, "data", "xsmn.json");
   let existing = {};
@@ -277,14 +383,21 @@ async function main() {
         existingDates.add(d.date);
         added++;
       });
+      // Sau khi da lay ky MOI NHAT, kiem tra xem con thieu ky nao tu dau nam den nay khong —
+      // neu co, tu dong lui ve qua khu bo sung (chi ton request khi THUC SU con thieu; sau khi
+      // da du roi cac lan chay sau se bo qua buoc nay ngay lap tuc).
+      const backfill = await backfillProvinceGaps(slug, existingArr);
+      added += backfill.added;
+
       // Sap xep moi nhat truoc, giong quy uoc trong app.
       existingArr.sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0));
       result[slug] = existingArr;
-      summary.push(slug + ": +" + added + " ky moi (tong " + existingArr.length + ")");
+      summary.push(slug + ": +" + added + " ky moi (tong " + existingArr.length + ")" +
+        (backfill.requests > 0 ? " [bo sung " + backfill.added + " ky cu qua " + backfill.requests + " trang]" : ""));
     } catch (e) {
       summary.push(slug + ": LOI - " + e.message);
     }
-    // Nghi 1 chut giua cac request de lich su voi server nguon.
+    // Nghi 1 chut giua cac tinh de lich su voi server nguon.
     await new Promise((r) => setTimeout(r, 800));
   }
 
@@ -295,7 +408,10 @@ async function main() {
   console.log("Da ghi: " + outPath);
 }
 
-module.exports = { stripTags, extractDatesWithPositions, sliceTiers, parseLoBlockFromText, parseLoDrawsFromText, MT_STRUCTURE, PROVINCES_MN };
+module.exports = {
+  stripTags, extractDatesWithPositions, sliceTiers, parseLoBlockFromText, parseLoDrawsFromText,
+  MT_STRUCTURE, PROVINCES_MN, PROVINCE_WEEKDAYS, computeExpectedDates, isoToDDMMYYYY, addDaysIso,
+};
 
 if (require.main === module) {
   main().catch(function (e) {
