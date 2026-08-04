@@ -75,12 +75,40 @@ function parseDrawRows(rows, game) {
   return draws;
 }
 
-async function scrapeGame(game) {
-  // Trang 1 (50 ky moi nhat) la du cho cap nhat hang ngay — khong can quet nhieu trang.
-  const html = await fetchPage(game.slug, 1);
-  const text = stripTags(html);
-  const rows = extractTableRows(text);
-  return parseDrawRows(rows, game);
+function pad2(n) { return String(n).padStart(2, "0"); }
+function isoOf(d) { return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate()); }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+// Trang 1 (50 ky moi nhat) la du cho cap nhat hang ngay. Nhung neu du lieu da co (existingArr)
+// CHUA lui toi 01/01 nam hien tai (vd lan dau chay, hoac bi gian doan lau ngay), thi lay THEM cac
+// trang tiep theo (2, 3, ...) — Lottolyzer sap xep moi nhat truoc nen trang sau la ky CU HON — cho
+// den khi da phu toi dau nam, het du lieu, hoac cham tran an toan MAX_PAGES (tranh quet vo han).
+const MAX_PAGES = 8; // 8 trang x 50 = toi da 400 ky — du sau cho ca nam ke ca game quay 3 lan/tuan
+async function scrapeGame(game, existingArr) {
+  const todayIso = isoOf(new Date());
+  const yearStartIso = todayIso.slice(0, 4) + "-01-01";
+  const existingDates = new Set((existingArr || []).map(function (r) { return r[0]; }));
+  const earliestExisting = existingDates.size > 0 ? Array.from(existingDates).sort()[0] : null;
+  const needsBackfill = !earliestExisting || earliestExisting > yearStartIso;
+
+  const allDraws = [];
+  let page = 1;
+  let pagesFetched = 0;
+  while (page <= MAX_PAGES) {
+    const html = await fetchPage(game.slug, page);
+    pagesFetched++;
+    const text = stripTags(html);
+    const rows = extractTableRows(text);
+    const draws = parseDrawRows(rows, game);
+    if (draws.length === 0) break; // het du lieu (qua trang cuoi) — dung lai
+    allDraws.push.apply(allDraws, draws);
+    if (!needsBackfill) break; // trang 1 la du cho cap nhat thuong ngay, khong can quet them
+    const oldestOnPage = draws.reduce(function (m, d) { return !m || d.date < m ? d.date : m; }, null);
+    if (oldestOnPage && oldestOnPage <= yearStartIso) break; // da lui toi dau nam — du roi
+    page++;
+    await sleep(800);
+  }
+  return { draws: allDraws, pagesFetched: pagesFetched, backfilled: needsBackfill && pagesFetched > 1 };
 }
 
 async function main() {
@@ -94,11 +122,11 @@ async function main() {
 
   for (const game of GAMES) {
     try {
-      const draws = await scrapeGame(game);
       const existingArr = Array.isArray(result[game.key]) ? result[game.key] : [];
+      const scraped = await scrapeGame(game, existingArr);
       const existingDates = new Set(existingArr.map(function (r) { return r[0]; }));
       let added = 0;
-      draws.forEach(function (d) {
+      scraped.draws.forEach(function (d) {
         if (existingDates.has(d.date)) return;
         const row = game.hasBonus ? [d.date, d.numbers, d.bonus] : [d.date, d.numbers];
         existingArr.push(row);
@@ -107,7 +135,8 @@ async function main() {
       });
       existingArr.sort(function (a, b) { return a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0; });
       result[game.key] = existingArr;
-      summary.push(game.key + ": +" + added + " ky moi (tong " + existingArr.length + ")");
+      summary.push(game.key + ": +" + added + " ky moi (tong " + existingArr.length + ")" +
+        (scraped.backfilled ? " [bo sung qua " + scraped.pagesFetched + " trang]" : ""));
     } catch (e) {
       summary.push(game.key + ": LOI - " + e.message);
     }
@@ -121,7 +150,7 @@ async function main() {
   console.log("Da ghi: " + outPath);
 }
 
-module.exports = { stripTags, extractTableRows, parseDrawRows, GAMES };
+module.exports = { stripTags, extractTableRows, parseDrawRows, GAMES, scrapeGame };
 
 if (require.main === module) {
   main().catch(function (e) {
